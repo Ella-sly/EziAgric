@@ -1,0 +1,124 @@
+# Local/preview stack for EziAgric.
+#
+# The `preview` profile backs the per-PR ephemeral environment used by
+# .github/workflows/preview.yml: backend + postgres + redis + frontend.
+# Everything is opt-in so `docker compose up` on a workstation stays quiet:
+#
+#   docker compose --profile preview up -d
+#
+# Frontend preview is optional and can be skipped by starting only the backend
+# services: `docker compose --profile preview up -d postgres redis backend-preview`.
+
+name: eziagric
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["preview"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PREVIEW_POSTGRES_PASSWORD:-preview-password}
+      POSTGRES_DB: amana_preview
+    ports:
+      - "${PREVIEW_POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - preview-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d amana_preview"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["preview"]
+    environment:
+      REDIS_PASSWORD: ${PREVIEW_REDIS_PASSWORD:-preview-redis-password}
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly no
+    ports:
+      - "${PREVIEW_REDIS_PORT:-6382}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  backend-preview:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    profiles: ["preview"]
+    environment:
+      NODE_ENV: staging
+      PORT: "4000"
+      DATABASE_URL: postgresql://postgres:${PREVIEW_POSTGRES_PASSWORD:-preview-password}@postgres:5432/amana_preview
+      REDIS_URL: redis://:${PREVIEW_REDIS_PASSWORD:-preview-redis-password}@redis:6379/0
+      JWT_SECRET: ${PREVIEW_JWT_SECRET:-preview-jwt-secret-value-minimum-32-chars}
+      ADMIN_ROUTES_ENABLED: "false"
+    ports:
+      - "${PREVIEW_PORT:-4001}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health/ready > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  frontend-preview:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${PREVIEW_API_BASE_URL:-http://localhost:4001}
+    profiles: ["preview"]
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_BASE_URL: ${PREVIEW_API_BASE_URL:-http://localhost:4001}
+    ports:
+      - "${PREVIEW_FRONTEND_PORT:-3001}:3000"
+    depends_on:
+      backend-preview:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  preview-postgres-data:

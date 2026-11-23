@@ -41,6 +41,8 @@ jobs:
   changes:
     name: Detect Changed Stacks
     runs-on: ubuntu-latest
+    # Timeout rationale: checkout + path filter (~30s); 5 min caps a stuck filter action.
+    timeout-minutes: 5
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
       backend: ${{ steps.filter.outputs.backend }}
@@ -86,6 +88,8 @@ jobs:
   docs-architecture:
     name: Architecture Diagrams Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: Mermaid render + link check (~1 min); 10 min allows a cold npm cache.
+    timeout-minutes: 10
     needs: [changes]
     steps:
       - name: Checkout
@@ -107,6 +111,8 @@ jobs:
   validate-quarantine:
     name: Validate flaky-tests quarantine registry
     runs-on: ubuntu-latest
+    # Timeout rationale: one Node script (~30s); 5 min is already generous.
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -122,6 +128,8 @@ jobs:
   frontend:
     name: Frontend Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: pnpm install + lint + build + Storybook + tests (~10 min); 25 min headroom.
+    timeout-minutes: 25
     needs: [changes, validate-quarantine]
     defaults:
       run:
@@ -211,6 +219,8 @@ jobs:
   event-schema:
     name: Event Schema Drift Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: codegen + drift diff (~1 min); 10 min headroom.
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.events == 'true'
     steps:
@@ -291,6 +301,8 @@ jobs:
   flag-catalog-drift:
     name: Feature Flag Catalog Drift Check
     runs-on: ubuntu-latest
+    # Timeout rationale: global ts-node install + drift check (~2 min); 10 min headroom.
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true'
     defaults:
@@ -314,6 +326,8 @@ jobs:
   backend:
     name: Backend Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: pnpm install + Prisma/tsc build + jest suites (~15 min); 30 min headroom.
+    timeout-minutes: 30
     needs: [changes, validate-quarantine]
     defaults:
       run:
@@ -416,6 +430,8 @@ jobs:
   mobile:
     name: Mobile Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: pnpm install + tsc + eslint + jest (~10 min); 25 min headroom.
+    timeout-minutes: 25
     needs: [changes, validate-quarantine]
     defaults:
       run:
@@ -623,6 +639,8 @@ jobs:
   contracts:
     name: Contracts Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: cargo audit/test + WASM build/optimize + reproducible rebuild (~20 min); 40 min headroom.
+    timeout-minutes: 40
     needs: [changes, validate-quarantine]
     defaults:
       run:
@@ -748,6 +766,8 @@ jobs:
   storage-layout:
     name: Storage Layout Required Gate
     runs-on: ubuntu-latest
+    # Timeout rationale: full-history checkout + diff gate (~1 min); 10 min headroom.
+    timeout-minutes: 10
     needs: changes
     steps:
       - name: Checkout
